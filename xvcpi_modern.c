@@ -21,16 +21,17 @@
 #include <errno.h>
 
 /* GPIO numbers for each signal. Negative values are invalid */
-// static int tck_gpio = 11;
-// static int tms_gpio = 25;
-// static int tdi_gpio = 10;
-// static int tdo_gpio = 9;
-static int tck_gpio = 6;
-static int tms_gpio = 13;
-static int tdi_gpio = 19;
-static int tdo_gpio = 26;
+static int tck_gpio = 11;
+static int tms_gpio = 25;
+static int tdi_gpio = 10;
+static int tdo_gpio = 9;
+// static int tck_gpio = 6;
+// static int tms_gpio = 13;
+// static int tdi_gpio = 19;
+// static int tdo_gpio = 26;
 
 static int verbose = 0;
+static int port = 2542;  // Default port number
 
 /* GPIO chip and line handles */
 static struct gpiod_chip *chip = NULL;
@@ -153,8 +154,20 @@ static int sread(int fd, void *target, int len) {
    unsigned char *t = target;
    while (len) {
       int r = read(fd, t, len);
-      if (r <= 0)
-         return r;
+      if (r <= 0) {
+         if (r == 0) {
+            // Connection closed by client
+            return 0;
+         }
+         if (errno == EINTR) {
+            // Interrupted by signal, check if we should continue
+            if (!running) {
+               return -1;  // Signal to exit
+            }
+            continue;  // Retry the read
+         }
+         return r;  // Other error
+      }
       t += r;
       len -= r;
    }
@@ -165,16 +178,29 @@ int handle_data(int fd) {
    const char xvcInfo[] = "xvcServer_v1.0:2048\n";
 
    do {
+      // Check if we should exit due to signal
+      if (!running) {
+         return -1;
+      }
+
       char cmd[16];
       unsigned char buffer[2048], result[1024];
       memset(cmd, 0, 16);
 
-      if (sread(fd, cmd, 2) != 1)
+      int read_result = sread(fd, cmd, 2);
+      if (read_result != 1) {
+         if (read_result == -1) {
+            return -1;  // Signal to exit
+         }
          return 1;
+      }
 
       if (memcmp(cmd, "ge", 2) == 0) {
-         if (sread(fd, cmd, 6) != 1)
+         int read_result = sread(fd, cmd, 6);
+         if (read_result != 1) {
+            if (read_result == -1) return -1;
             return 1;
+         }
          memcpy(result, xvcInfo, strlen(xvcInfo));
          if (write(fd, result, strlen(xvcInfo)) != strlen(xvcInfo)) {
             perror("write");
@@ -186,8 +212,11 @@ int handle_data(int fd) {
          }
          break;
       } else if (memcmp(cmd, "se", 2) == 0) {
-         if (sread(fd, cmd, 9) != 1)
+         int read_result = sread(fd, cmd, 9);
+         if (read_result != 1) {
+            if (read_result == -1) return -1;
             return 1;
+         }
          memcpy(result, cmd + 5, 4);
          if (write(fd, result, 4) != 4) {
             perror("write");
@@ -199,8 +228,11 @@ int handle_data(int fd) {
          }
          break;
       } else if (memcmp(cmd, "sh", 2) == 0) {
-         if (sread(fd, cmd, 4) != 1)
+         int read_result = sread(fd, cmd, 4);
+         if (read_result != 1) {
+            if (read_result == -1) return -1;
             return 1;
+         }
          if (verbose) {
             printf("%u : Received command: 'shift'\n", (int)time(NULL));
          }
@@ -211,18 +243,22 @@ int handle_data(int fd) {
 
       // For shift command, continue to read length and data
       int len;
-      if (sread(fd, &len, 4) != 1) {
+      read_result = sread(fd, &len, 4);
+      if (read_result != 1) {
+         if (read_result == -1) return -1;
          fprintf(stderr, "reading length failed\n");
          return 1;
       }
 
-      int nr_bytes = (len + 7) / 8;
+      size_t nr_bytes = (len + 7) / 8;
       if (nr_bytes * 2 > sizeof(buffer)) {
          fprintf(stderr, "buffer size exceeded\n");
          return 1;
       }
 
-      if (sread(fd, buffer, nr_bytes * 2) != 1) {
+      read_result = sread(fd, buffer, nr_bytes * 2);
+      if (read_result != 1) {
+         if (read_result == -1) return -1;
          fprintf(stderr, "reading data failed\n");
          return 1;
       }
@@ -230,15 +266,15 @@ int handle_data(int fd) {
 
       if (verbose) {
          printf("\tNumber of Bits  : %d\n", len);
-         printf("\tNumber of Bytes : %d \n", nr_bytes);
+         printf("\tNumber of Bytes : %zu \n", nr_bytes);
          printf("\n");
       }
 
       bcm2835gpio_write(0, 1, 1);
 
-      int bytesLeft = nr_bytes;
+      size_t bytesLeft = nr_bytes;
       int bitsLeft = len;
-      int byteIndex = 0;
+      size_t byteIndex = 0;
       uint32_t tdi, tms, tdo;
 
       while (bytesLeft > 0) {
@@ -284,7 +320,7 @@ int handle_data(int fd) {
 
       bcm2835gpio_write(0, 1, 0);
 
-      if (write(fd, result, nr_bytes) != nr_bytes) {
+      if (write(fd, result, nr_bytes) != (ssize_t)nr_bytes) {
          perror("write");
          return 1;
       }
@@ -303,7 +339,7 @@ int main(int argc, char **argv) {
 
    opterr = 0;
 
-   while ((c = getopt(argc, argv, "vd:")) != -1) {
+   while ((c = getopt(argc, argv, "vd:p:c:m:i:o:")) != -1) {
       switch (c) {
       case 'v':
          verbose = 1;
@@ -313,14 +349,61 @@ int main(int argc, char **argv) {
          if (jtag_delay <= 0)
              jtag_delay = JTAG_DELAY;
          break;
+      case 'p':
+         port = atoi(optarg);
+         if (port <= 0)
+             port = 2542; // Default to 2542 if invalid
+         break;
+      case 'c':
+         tck_gpio = atoi(optarg);
+         if (tck_gpio < 0)
+             tck_gpio = 11; // Default to 11 if invalid
+         break;
+      case 'm':
+         tms_gpio = atoi(optarg);
+         if (tms_gpio < 0)
+             tms_gpio = 25; // Default to 25 if invalid
+         break;
+      case 'i':
+         tdi_gpio = atoi(optarg);
+         if (tdi_gpio < 0)
+             tdi_gpio = 10; // Default to 10 if invalid
+         break;
+      case 'o':
+         tdo_gpio = atoi(optarg);
+         if (tdo_gpio < 0)
+             tdo_gpio = 9; // Default to 9 if invalid
+         break;
       case '?':
-         fprintf(stderr, "usage: %s [-v] [-d delay]\n", *argv);
+         fprintf(stderr, "usage: %s [-v] [-d delay] [-p port] [-c tck_pin] [-m tms_pin] [-i tdi_pin] [-o tdo_pin]\n", *argv);
+         fprintf(stderr, "  -v          : verbose output\n");
+         fprintf(stderr, "  -d delay    : JTAG delay (default: %d)\n", JTAG_DELAY);
+         fprintf(stderr, "  -p port     : TCP port (default: %d)\n", 2542);
+         fprintf(stderr, "  -c pin      : TCK GPIO pin (default: %d)\n", 11);
+         fprintf(stderr, "  -m pin      : TMS GPIO pin (default: %d)\n", 25);
+         fprintf(stderr, "  -i pin      : TDI GPIO pin (default: %d)\n", 10);
+         fprintf(stderr, "  -o pin      : TDO GPIO pin (default: %d)\n", 9);
          return 1;
       }
    }
    
    if (verbose)
       printf("jtag_delay=%d\n", jtag_delay);
+
+   // Validate GPIO pins
+   if (tck_gpio < 0 || tms_gpio < 0 || tdi_gpio < 0 || tdo_gpio < 0) {
+      fprintf(stderr, "Error: Invalid GPIO pin numbers\n");
+      return 1;
+   }
+   
+   if (verbose) {
+      printf("GPIO Configuration:\n");
+      printf("  TCK: GPIO%d\n", tck_gpio);
+      printf("  TMS: GPIO%d\n", tms_gpio);
+      printf("  TDI: GPIO%d\n", tdi_gpio);
+      printf("  TDO: GPIO%d\n", tdo_gpio);
+      printf("  Port: %d\n", port);
+   }
 
    if (!bcm2835gpio_init()) {
       fprintf(stderr,"Failed in bcm2835gpio_init()\n");
@@ -343,7 +426,7 @@ int main(int argc, char **argv) {
    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &i, sizeof i);
 
    address.sin_addr.s_addr = INADDR_ANY;
-   address.sin_port = htons(2542);
+   address.sin_port = htons(port);
    address.sin_family = AF_INET;
 
    if (bind(s, (struct sockaddr*) &address, sizeof(address)) < 0) {
@@ -359,7 +442,7 @@ int main(int argc, char **argv) {
    }
 
    if (verbose) {
-      printf("XVC server listening on port 2542\n");
+      printf("XVC server listening on port %d\n", port);
       printf("Use Ctrl+C to stop the server\n");
    }
 
@@ -416,12 +499,18 @@ int main(int argc, char **argv) {
                   FD_SET(newfd, &conn);
                }
             }
-            else if (handle_data(fd)) {
-
-               if (verbose)
-                  printf("connection closed - fd %d\n", fd);
-               close(fd);
-               FD_CLR(fd, &conn);
+            else {
+               int result = handle_data(fd);
+               if (result == -1) { // Check for signal to exit
+                  // handle_data returned -1, indicating exit
+                  goto cleanup_and_exit;
+               }
+               else if (result) {
+                  if (verbose)
+                     printf("connection closed - fd %d\n", fd);
+                  close(fd);
+                  FD_CLR(fd, &conn);
+               }
             }
          }
          else if (FD_ISSET(fd, &except)) {
@@ -435,6 +524,7 @@ int main(int argc, char **argv) {
       }
    }
    
+cleanup_and_exit:
    bcm2835gpio_cleanup();
    return 0;
 }
