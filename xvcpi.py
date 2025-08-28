@@ -10,9 +10,6 @@ The XVC protocol consists of three main commands:
 - getinfo: Returns server version and capabilities
 - settck: Sets JTAG clock period
 - shift: Performs JTAG bit shift operations
-
-Based on the original C implementation by Derek Mulcahy, adapted to Python
-using gpiozero for GPIO operations instead of libgpiod.
 """
 
 import argparse

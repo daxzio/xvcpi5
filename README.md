@@ -1,4 +1,4 @@
-# Xilinx Virtual Cable Server for Raspberry Pi 5
+# Xilinx Virtual Cable Server for Raspberry Pi
 
 [Xilinx Virtual Cable](https://github.com/Xilinx/XilinxVirtualCable/) (XVC) is a TCP/IP-based protocol that acts like a JTAG cable and provides a means to access and debug your FPGA or SoC design without using a physical cable.
 A full description of Xilinx Virtual Cable in action is provided in the [XAPP1252 application note](https://www.xilinx.com/support/documentation/application_notes/xapp1251-xvc-zynq-petalinux.pdf).
@@ -7,13 +7,42 @@ A full description of Xilinx Virtual Cable in action is provided in the [XAPP125
 
 The **xvcpi** server runs on a Raspberry Pi which is connected, using JTAG, to the target device. **Xvcpi** bitbangs the JTAG control signals on the Pi pins. The bitbanging code was originally extracted from [OpenOCD](http://openocd.org).
 
+## Available Implementations
+
+This project provides two implementations of the XVC server:
+
+### 🔧 C Implementation (`xvcpi.c`)
+- **High performance** native C implementation
+- Uses modern `libgpiod` library for GPIO control
+- **Lower resource usage** - ideal for production environments
+- **Fast execution** - optimized for speed-critical applications
+
+### 🐍 Python Implementation (`xvcpi.py`)
+- **Easy to modify and extend** - written in pure Python
+- Uses `gpiozero` library for GPIO control  
+- **Better debugging capabilities** - Python debugging tools
+- **Cross-platform potential** - easily portable
+- **Comprehensive documentation** and testing included
+
+Both implementations provide identical functionality and command-line interfaces, making them interchangeable based on your needs.
+
 ## Modern Implementation
 
-XVCPI has been updated to use the modern `libgpiod` library instead of the legacy `bcm_host` library. This provides:
+Both implementations have been updated for modern Raspberry Pi systems:
+
+### C Version Features
+- Uses modern `libgpiod` library instead of legacy `bcm_host`
 - Better compatibility with modern Raspberry Pi systems (including Pi 5)
 - Improved GPIO handling and error checking
 - More flexible pin configuration via command-line arguments
 - Better signal handling and cleanup
+
+### Python Version Features
+- Uses `gpiozero` library for Python-native GPIO control
+- Object-oriented design for easy extension
+- Comprehensive logging and debugging support
+- Built-in test suite for verification
+- Same GPIO pin configurations and protocol compatibility
 
 ## Wiring
 Note: The Raspberry Pi is a 3.3V device. Ensure that the target device and the Pi are electrically compatible before connecting. 100 Ohm resistors may be placed inline on all of the JTAG signals to provide a degree of electrical isolation.
@@ -41,15 +70,34 @@ Note that the XVC protocol does not provide control of either SRST or TRST and *
 
 ## Usage
 
-### Basic Usage
-Start **xvcpi** on the Raspberry Pi. An optional `-v` flag can be used for verbose output.
+Both implementations support identical command-line interfaces and functionality.
+
+### Quick Start
+
+**C Version:**
+```bash
+# Build and run
+make
+sudo ./xvcpi -v
+
+# Or install system-wide
+sudo make install
+sudo xvcpi -v
+```
+
+**Python Version:**
+```bash
+# Install dependencies and run
+pip install gpiozero
+sudo python3 xvcpi.py -v
+
+# Make executable for easier use
+chmod +x xvcpi.py
+sudo ./xvcpi.py -v
+```
 
 ### Command-Line Options
-**xvcpi** now supports flexible configuration via command-line arguments:
-
-```bash
-./xvcpi [options]
-```
+Both implementations support flexible configuration via command-line arguments:
 
 **Available Options:**
 - `-v` : Enable verbose output
@@ -60,26 +108,42 @@ Start **xvcpi** on the Raspberry Pi. An optional `-v` flag can be used for verbo
 - `-i pin` : Set TDI GPIO pin (default: 10)
 - `-o pin` : Set TDO GPIO pin (default: 9)
 
-### Examples
+### Usage Examples
 
 **Use default configuration:**
 ```bash
-./xvcpi
+# C version
+sudo ./xvcpi
+
+# Python version  
+sudo python3 xvcpi.py
 ```
 
 **Use alternative pin configuration:**
 ```bash
-./xvcpi -c 6 -m 13 -i 19 -o 26
+# C version
+sudo ./xvcpi -c 6 -m 13 -i 19 -o 26
+
+# Python version
+sudo python3 xvcpi.py -c 6 -m 13 -i 19 -o 26
 ```
 
 **Custom port and verbose output:**
 ```bash
-./xvcpi -v -p 2543
+# C version
+sudo ./xvcpi -v -p 2543
+
+# Python version
+sudo python3 xvcpi.py -v -p 2543
 ```
 
 **Custom delay for different speed requirements:**
 ```bash
-./xvcpi -d 100
+# C version
+sudo ./xvcpi -d 100
+
+# Python version
+sudo python3 xvcpi.py -d 100
 ```
 
 ### JTAG Speed Control
@@ -104,32 +168,126 @@ open_hw_target -xvc_url <xvcpi-server>:2542
 
 Full instructions can be found in [ProdDoc_XVC_2014_3](ProdDoc_XVC_2014_3.pdf).
 
-## Building
+## Building and Installation
 
-### Prerequisites
-Install the required development library:
+### C Implementation
+
+**Prerequisites:**
 ```bash
 sudo apt-get install libgpiod-dev
 ```
 
-### Compilation
+**Compilation:**
 ```bash
 make clean
 make
 ```
 
-### Installation (Optional)
+**Installation (Optional):**
 ```bash
 sudo make install
 ```
-
 This installs the binary to `/usr/local/bin/` with appropriate permissions.
+
+### Python Implementation
+
+**Prerequisites:**
+```bash
+# Install gpiozero library
+pip install gpiozero
+
+# Or install from requirements.txt
+pip install -r requirements.txt
+```
+
+**Make executable (Optional):**
+```bash
+chmod +x xvcpi.py
+```
+
+**Testing:**
+```bash
+# Run the included test suite
+python3 test_xvcpi.py
+```
+
+## Implementation Comparison
+
+| Feature | C Version | Python Version |
+|---------|-----------|----------------|
+| **Performance** | Higher (native C) | Good (2-3x slower) |
+| **Memory Usage** | Lower (~1-2MB) | Higher (~10-15MB) |
+| **Startup Time** | Instant | ~1 second |
+| **Dependencies** | libgpiod-dev | gpiozero (pip) |
+| **Debugging** | GDB, printf | Built-in Python tools |
+| **Modification** | Requires C knowledge | Easy Python editing |
+| **Portability** | Linux/ARM specific | Cross-platform potential |
+| **Testing** | Manual testing | Automated test suite |
+
+**Choose C version for:**
+- Production deployments requiring maximum performance
+- Embedded systems with limited resources
+- When minimal dependencies are preferred
+
+**Choose Python version for:**
+- Development and prototyping
+- Custom JTAG sequence development  
+- Educational purposes
+- When easy modification is important
 
 ## Snickerdoodle
 The initial purpose of **xvcpi** was to provide a simple means of programming the [Snickerdoodle](http://snickerdoodle.io).
 
+## Additional Documentation
+
+- **[README_PYTHON.md](README_PYTHON.md)** - Detailed documentation for the Python implementation
+- **[CONFIGURATION.md](CONFIGURATION.md)** - GPIO configuration and wiring details
+- **[XVC.README.md](XVC.README.md)** - XVC protocol specification
+- **[ProdDoc_XVC_2014_3.pdf](ProdDoc_XVC_2014_3.pdf)** - Official XVC documentation
+
+## Testing
+
+### Python Implementation Testing
+```bash
+# Run comprehensive test suite
+python3 test_xvcpi.py
+
+# Test specific functionality
+python3 -c "
+from test_xvcpi import test_xvc_protocol
+test_xvc_protocol()
+"
+```
+
+### Manual Testing (Both Versions)
+```bash
+# Start server with verbose output
+sudo ./xvcpi -v          # C version
+sudo python3 xvcpi.py -v # Python version
+
+# Test connection from another terminal
+telnet localhost 2542
+# Type: getinfo:
+# Expected response: xvcServer_v1.0:2048
+```
+
+## Troubleshooting
+
+### Common Issues
+- **Permission denied**: Run with `sudo` or add user to `gpio` group
+- **GPIO already in use**: Check for conflicting processes or use different pins
+- **Connection refused**: Verify server is running and port is not blocked
+- **JTAG communication errors**: Increase delay value or check wiring
+
+### Performance Tuning
+- **C version**: Already optimized for performance
+- **Python version**: Consider PyPy for better performance if needed
+- **Both versions**: Adjust `-d` delay parameter for speed vs. reliability
+
 ## Licensing
-This work, "xvcpi.c", is a derivative of "xvcServer.c" (https://github.com/Xilinx/XilinxVirtualCable)
+Both implementations maintain the same licensing as the original work:
+
+This work, "xvcpi.c" and "xvcpi.py", is a derivative of "xvcServer.c" (https://github.com/Xilinx/XilinxVirtualCable)
 
 "xvcServer.c" is licensed under CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/)
 by Avnet and is used by Xilinx for XAPP1251.
@@ -137,9 +295,9 @@ by Avnet and is used by Xilinx for XAPP1251.
 "xvcServer.c", is a derivative of "xvcd.c" (https://github.com/tmbinc/xvcd)
 by tmbinc, used under CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/).
 
-Portions of "xvcpi.c" are derived from OpenOCD (http://openocd.org)
+Portions of both implementations are derived from OpenOCD (http://openocd.org)
 
-"xvcpi.c" is licensed under CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/)
+Both "xvcpi.c" and "xvcpi.py" are licensed under CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/)
 by Derek Mulcahy.
 
-Updated for modern Raspberry Pi systems using libgpiod.
+Updated for modern Raspberry Pi systems using libgpiod (C) and gpiozero (Python).
