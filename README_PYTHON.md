@@ -180,10 +180,11 @@ python3 test_xvcpi.py
 
 ### Permission Issues
 ```bash
-# Add user to gpio group
+# Add user to gpio group (recommended)
 sudo usermod -a -G gpio $USER
+# Then logout/login or run: newgrp gpio
 
-# Or run with sudo
+# Or run with sudo (alternative)
 sudo python3 xvcpi.py
 ```
 

@@ -274,7 +274,11 @@ telnet localhost 2542
 ## Troubleshooting
 
 ### Common Issues
-- **Permission denied**: Run with `sudo` or add user to `gpio` group
+- **Permission denied**: Run with `sudo` or add user to `gpio` group:
+  ```bash
+  sudo usermod -a -G gpio $USER
+  # Then logout/login or run: newgrp gpio
+  ```
 - **GPIO already in use**: Check for conflicting processes or use different pins
 - **Connection refused**: Verify server is running and port is not blocked
 - **JTAG communication errors**: Increase delay value or check wiring
