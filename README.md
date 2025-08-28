@@ -302,6 +302,5 @@ by tmbinc, used under CC0 1.0 Universal (http://creativecommons.org/publicdomain
 Portions of both implementations are derived from OpenOCD (http://openocd.org)
 
 Both "xvcpi.c" and "xvcpi.py" are licensed under CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/)
-by Derek Mulcahy.
 
 Updated for modern Raspberry Pi systems using libgpiod (C) and gpiozero (Python).

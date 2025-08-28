@@ -58,14 +58,6 @@ TCK = GPIO11 (Pin 23)
 TDO = GPIO9  (Pin 21)
 ```
 
-### Alternative Configuration
-```
-TMS = GPIO13 (Pin 33)
-TDI = GPIO19 (Pin 35)
-TCK = GPIO6  (Pin 31)  
-TDO = GPIO26 (Pin 37)
-```
-
 **Note:** Ensure proper electrical compatibility between the Raspberry Pi (3.3V) and your target device. Consider using 100Ω series resistors for signal isolation.
 
 ## Usage

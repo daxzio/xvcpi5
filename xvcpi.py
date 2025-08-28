@@ -26,17 +26,11 @@ from gpiozero import DigitalOutputDevice, DigitalInputDevice
 class XVCServer:
     """Xilinx Virtual Cable Server implementation in Python"""
     
-    # Default GPIO pin assignments (same as C version)
+    # Default GPIO pin assignments
     DEFAULT_TCK_PIN = 11
     DEFAULT_TMS_PIN = 25 
     DEFAULT_TDI_PIN = 10
     DEFAULT_TDO_PIN = 9
-    
-    # Alternative pin configuration
-    ALT_TCK_PIN = 6
-    ALT_TMS_PIN = 13
-    ALT_TDI_PIN = 19
-    ALT_TDO_PIN = 26
     
     # Default configuration
     DEFAULT_PORT = 2542
@@ -527,12 +521,10 @@ def main():
         epilog="""
 GPIO Pin Configuration:
   Default: TMS=GPIO25, TDI=GPIO10, TCK=GPIO11, TDO=GPIO9
-  Alternative: TMS=GPIO13, TDI=GPIO19, TCK=GPIO6, TDO=GPIO26
 
 Examples:
   %(prog)s                          # Use default configuration
   %(prog)s -v                       # Verbose mode
-  %(prog)s -c 6 -m 13 -i 19 -o 26   # Alternative pin configuration
   %(prog)s -p 2543 -d 100           # Custom port and delay
         """
     )
