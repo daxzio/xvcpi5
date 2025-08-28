@@ -1,7 +1,4 @@
-try:
-    import RPi.GPIO as GPIO
-except RuntimeError:
-    print("Error importing RPi.GPIO! Did you run as root?")
+from gpiozero import DigitalOutputDevice, DigitalInputDevice
 
 import os
 
@@ -14,7 +11,6 @@ import sys
 from enum import Enum
 from typing import Union
 
-# from cocotbext.jtag import JTAGDevice
 from jtag_device import JTAGDevice
 
 
@@ -62,7 +58,7 @@ class JTAGRpi:
         self.devices = []
         self.last_ir_val = -1
 
-        self.compat = True
+
         self.state = JtagState.RUN_TEST_IDLE
         self.jtag_legs = []
 
@@ -76,17 +72,19 @@ class JTAGRpi:
 
         self.tms_reset_num = 7
 
-        #         rev = GPIO.RPI_INFO
-        #         print(rev)
+        # Initialize GPIO pins using gpiozero
+        self.tck = DigitalOutputDevice(self.TCK_pin)
+        self.tms = DigitalOutputDevice(self.TMS_pin)
+        self.tdi = DigitalOutputDevice(self.TDI_pin)
+        self.tdo = DigitalInputDevice(self.TDO_pin)
 
-        # Use GPIO numbers not pin numbers
-        self.setup()
-
-        GPIO.setup((self.TCK_pin, self.TMS_pin, self.TDI_pin), GPIO.OUT)
-        GPIO.setup(self.TDO_pin, GPIO.IN)
-
-    def setup(self):
-        GPIO.setmode(GPIO.BCM)
+    def _set_tck_tdi_simultaneous(self, tck_val, tdi_val):
+        """Set TCK and TDI with minimal timing skew for JTAG operations"""
+        # For JTAG timing: Set TDI first (data setup), then TCK (clock edge)
+        # This ensures data is stable before the clock transition
+        raise Exception("DRC/DRS not implemented") 
+        self.tdi.value = tdi_val
+        self.tck.value = tck_val
 
     def debug_log(self, cur_leg):
 
@@ -98,18 +96,18 @@ class JTAGRpi:
         )
 
     def phy_sync(self, tdi, tms):
+        tdo = self.tdo.value  # grab the TDO value before the clock changes
 
-        if self.compat:
-            self.setup()
-            tdo = GPIO.input(
-                self.TDO_pin
-            )  # grab the TDO value before the clock changes
-
-            GPIO.output((self.TCK_pin, self.TDI_pin, self.TMS_pin), (0, tdi, tms))
-            GPIO.output((self.TCK_pin, self.TDI_pin, self.TMS_pin), (1, tdi, tms))
-            GPIO.output((self.TCK_pin, self.TDI_pin, self.TMS_pin), (0, tdi, tms))
-        else:
-            tdo = jtag_pins(tdi, tms, gpio_pointer)
+        # Set initial states: TCK=0, TDI=tdi, TMS=tms
+        self.tck.value = 0
+        self.tdi.value = tdi
+        self.tms.value = tms
+        
+        # Clock rising edge
+        self.tck.value = 1
+        
+        # Clock falling edge
+        self.tck.value = 0
 
         return tdo
 
@@ -184,61 +182,32 @@ class JTAGRpi:
 
         elif self.state == JtagState.SHIFT:
             if self.cur_leg[0] == JtagLeg.DRC or self.cur_leg[0] == JtagLeg.DRS:
+                raise Exception("DRC/DRS not implemented")
                 if (
-                    self.self.cur_leg[0] == JtagLeg.DRC
+                    self.cur_leg[0] == JtagLeg.DRC
                 ):  # duplicate code because we want speed (eliminating TDO readback is significant speedup)
-                    if self.compat:
-                        self.setup()
-                        GPIO.output((self.TCK_pin, self.TDI_pin), (0, 1))
-                        for bit in self.cur_leg[1][:-1]:
-                            if bit == "1":
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (1, 1))
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (0, 1))
-                            else:
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (1, 0))
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (0, 0))
-                    else:
-                        bytestr = bytes(self.cur_leg[1][:-1], "utf-8")
-                        ffi = FFI()
-                        ffistr = ffi.new("char[]", bytestr)
-                        keepalive.append(
-                            ffistr
-                        )  # need to make sure the lifetime of the string is long enough for the call
-                        jtag_prog(ffistr, gpio_pointer)
-                        GPIO.output(
-                            self.TCK_pin, 0
-                        )  # restore this to 0, as jtag_prog() leaves TCK high when done
-                else:  # jtagleg is DRS -- duplicate code, as TDO readback slows things down significantly
-                    if self.compat:
-                        self.setup()
-                        GPIO.output((self.TCK_pin, self.TDI_pin), (0, 1))
-                        for bit in self.cur_leg[1][:-1]:
-                            if bit == "1":
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (1, 1))
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (0, 1))
-                            else:
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (1, 0))
-                                GPIO.output((self.TCK_pin, self.TDI_pin), (0, 0))
-                        tdo = GPIO.input(self.TDO_pin)
-                        if tdo == 1:
-                            self.tdo_vect = "1" + self.tdo_vect
+                    self._set_tck_tdi_simultaneous(0, 1)  # TCK=0, TDI=1
+                    for bit in self.cur_leg[1][:-1]:
+                        if bit == "1":
+                            self._set_tck_tdi_simultaneous(1, 1)  # TCK=1, TDI=1
+                            self._set_tck_tdi_simultaneous(0, 1)  # TCK=0, TDI=1
                         else:
-                            self.tdo_vect = "0" + self.tdo_vect
+                            self._set_tck_tdi_simultaneous(1, 0)  # TCK=1, TDI=0
+                            self._set_tck_tdi_simultaneous(0, 0)  # TCK=0, TDI=0
+                else:  # jtagleg is DRS -- duplicate code, as TDO readback slows things down significantly
+                    self._set_tck_tdi_simultaneous(0, 1)  # TCK=0, TDI=1
+                    for bit in self.cur_leg[1][:-1]:
+                        if bit == "1":
+                            self._set_tck_tdi_simultaneous(1, 1)  # TCK=1, TDI=1
+                            self._set_tck_tdi_simultaneous(0, 1)  # TCK=0, TDI=1
+                        else:
+                            self._set_tck_tdi_simultaneous(1, 0)  # TCK=1, TDI=0
+                            self._set_tck_tdi_simultaneous(0, 0)  # TCK=0, TDI=0
+                    tdo = self.tdo.value
+                    if tdo == 1:
+                        self.tdo_vect = "1" + self.tdo_vect
                     else:
-                        bytestr = bytes(self.cur_leg[1][:-1], "utf-8")
-                        tdo_temp = "0" * len(
-                            self.cur_leg[1][:-1]
-                        )  # initialize space for tdo_vect
-                        retstr = bytes(tdo_temp, "utf-8")
-                        ffi = FFI()
-                        ffistr = ffi.new("char[]", bytestr)
-                        ffiret = ffi.new("char[]", retstr)
-                        keepalive.append(
-                            ffistr
-                        )  # need to make sure the lifetime of the string is long enough for the call
-                        keepalive.append(ffiret)
-                        jtag_prog_rbk(ffistr, gpio_pointer, ffiret)
-                        tdo_vect = ffi.string(ffiret).decode("utf-8")
+                        self.tdo_vect = "0" + self.tdo_vect
 
                 self.state = JtagState.SHIFT
 
@@ -414,7 +383,6 @@ class JTAGRpi:
             & (chain != "drs")
         ):
             self.log.critical("unknown chain type ", chain, " aborting!")
-            GPIO.cleanup()
             exit(1)
 
         # logging.debug('found JTAG chain ', chain, ' with len ', str(length), ' and data ', hex(value))
@@ -429,10 +397,13 @@ class JTAGRpi:
             if chain == "dr":
                 code = JtagLeg.DR
             elif chain == "drc":
+                raise Exception("DRC not implemented")
                 code = JtagLeg.DRC
             elif chain == "drr":
+                raise Exception("DRR not implemented")
                 code = JtagLeg.DRR
             elif chain == "drs":
+                raise Exception("DRS not implemented")
                 code = JtagLeg.DRS
             elif chain == "ir":
                 code = JtagLeg.IR
@@ -448,7 +419,8 @@ class JTAGRpi:
         return cmd
 
     def finish(self) -> None:
-        GPIO.cleanup()
+        # gpiozero handles cleanup automatically
+        pass
 
     @property
     def active_device(self) -> JTAGDevice:
@@ -547,4 +519,4 @@ class JTAGRpi:
     def read_idcode(self, device: int = 0) -> None:
         self.device = device
         self.read("IDCODE", self.active_device.idcode, device)
-        self.log.debug(f"Read  [{self.device}] IDCODE:  0x{self.active_device.idcode:08x} SUCCESS")
+        # self.log.debug(f"Read  [{self.device}] IDCODE:  0x{self.active_device.idcode:08x} SUCCESS")
